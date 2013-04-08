@@ -21,7 +21,7 @@
 
 define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :start], :port => 27017 , \
     :logpath => "/var/log/mongodb", :dbpath => "/data", :configfile => "/etc/mongodb.conf", \
-    :configserver => [], :replicaset => nil, :enable_rest => false, \
+    :configserver => [], :replicaset => nil, :replica_nodes => nil, :shard_nodes => nil, :enable_rest => false, \
     :notifies => [] do
     
   include_recipe "mongodb::default"
@@ -45,6 +45,8 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
 
   enable_rest = params[:enable_rest]
   
+  sh_nodes = params[:shard_nodes]
+  rs_nodes = params[:replica_nodes]
   replicaset = params[:replicaset]
   if type == "shard"
     if replicaset.nil?
@@ -168,13 +170,15 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
   
   # replicaset
   if !replicaset_name.nil?
-    rs_nodes = search(
-      :node,
-      "mongodb_cluster_name:#{replicaset['mongodb']['cluster_name']} AND \
-       recipes:mongodb\\:\\:replicaset AND \
-       mongodb_shard_name:#{replicaset['mongodb']['shard_name']} AND \
-       chef_environment:#{replicaset.chef_environment}"
-    )
+    if rs_nodes.nil?
+      rs_nodes = search(
+	:node,
+	"mongodb_cluster_name:#{replicaset['mongodb']['cluster_name']} AND \
+	 recipes:mongodb\\:\\:replicaset AND \
+	 mongodb_shard_name:#{replicaset['mongodb']['shard_name']} AND \
+	 chef_environment:#{replicaset.chef_environment}"
+      )
+    end
   
     ruby_block "config_replicaset" do
       block do
@@ -191,17 +195,19 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
     # add all shards
     # configure the sharded collections
     
-    shard_nodes = search(
-      :node,
-      "mongodb_cluster_name:#{node['mongodb']['cluster_name']} AND \
-       recipes:mongodb\\:\\:shard AND \
-       chef_environment:#{node.chef_environment}"
-    )
+    if sh_nodes.nil?
+      sh_nodes = search(
+	:node,
+	"mongodb_cluster_name:#{node['mongodb']['cluster_name']} AND \
+	 recipes:mongodb\\:\\:shard AND \
+	 chef_environment:#{node.chef_environment}"
+      )
+    end
     
     ruby_block "config_sharding" do
       block do
         if type == "mongos"
-          MongoDB.configure_shards(node, shard_nodes)
+          MongoDB.configure_shards(node, sh_nodes)
           MongoDB.configure_sharded_collections(node, node['mongodb']['sharded_collections'])
         end
       end

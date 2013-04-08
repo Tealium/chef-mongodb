@@ -38,6 +38,7 @@ mongodb_instance "mongodb_shard" do
   port         node['mongodb']['port']
   logpath      node['mongodb']['logpath']
   dbpath       node['mongodb']['dbpath']
+  replica_nodes  node['mongodb']['replica_nodes']
   if is_replicated
     replicaset    node
   end

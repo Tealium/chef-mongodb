@@ -25,14 +25,17 @@ service "mongodb" do
   action [:disable, :stop]
 end
 
-configsvr = search(
-  :node,
-  "mongodb_cluster_name:#{node['mongodb']['cluster_name']} AND \
-   recipes:mongodb\\:\\:configserver AND \
-   chef_environment:#{node.chef_environment}"
-)
+configsvr = node['mongodb']['configservers']
+if configsvr.nil?
+  configsvr = search(
+    :node,
+    "mongodb_cluster_name:#{node['mongodb']['cluster_name']} AND \
+     recipes:mongodb\\:\\:configserver AND \
+     chef_environment:#{node.chef_environment}"
+  )
 
   Chef::Log.info( "Searching for Mongo Config Servers -- search result is: #{configsvr}" );
+end
 
 if configsvr.length != 1 and configsvr.length != 3
   Chef::Log.error("Found #{configsvr.length} configserver, need either one or three of them")
@@ -44,6 +47,7 @@ mongodb_instance "mongos" do
   port         node['mongodb']['port']
   logpath      node['mongodb']['logpath']
   dbpath       node['mongodb']['dbpath']
+  shard_nodes  node['mongodb']['shard_nodes']
   configserver configsvr
   enable_rest  node['mongodb']['enable_rest']
 end
