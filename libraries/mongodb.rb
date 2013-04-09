@@ -37,7 +37,8 @@ class Chef::ResourceDefinitionList::MongoDB
       members << node unless members.include?(node)
     end
 
-    host_members = members.collect{ |m| m['fqdn'] + ":" + node['mongodb']['port'].to_s }
+    #host_members = members.collect{ |m| m['fqdn'] + ":" + node['mongodb']['port'].to_s }
+    host_members = members.collect{ |m| m['fqdn'] + ":" + m['mongodb']['port'].to_s }
 
     is_replicaset = false
 
@@ -51,14 +52,14 @@ class Chef::ResourceDefinitionList::MongoDB
         Chef::Log.warn("No replicaset found to be initiated.")
         is_replicaset = false
       else
-        Chef::Log.warn("Could not connect to database: #{members.collect{ |n| n['hostname'] }.join(', ')}")
+        Chef::Log.warn("Could not connect to database (#{error_code.to_s()}):: #{members.collect{ |n| n['hostname'] }.join(', ')}")
       end
     rescue => error_code
       if error_code.to_s().include?('Cannot connect to a replica set')
         Chef::Log.warn("No replicaset found to be initiated.")
         is_replicaset = false
       else
-        Chef::Log.warn("Could not connect to database: #{members.collect{ |n| n['hostname'] }.join(', ')}")
+        Chef::Log.warn("Could not connect to database (#{error_code.to_s()}):: #{members.collect{ |n| n['hostname'] }.join(', ')}")
       end
     else
       Chef::Log.info("Replicaset found. Connected to replicaset.")
@@ -138,7 +139,7 @@ class Chef::ResourceDefinitionList::MongoDB
       members << node unless fqdns.include?(node['fqdn'])
 
       #Reconfigure replicaset
-      members.sort!{ |x,y| x.name <=> y.name }
+      #members.sort!{ |x,y| x.name <=> y.name }
       rs_members = []
       members.each_index do |n|
         Chef::Log.info(n)
@@ -183,7 +184,7 @@ class Chef::ResourceDefinitionList::MongoDB
       if result.fetch('ok', nil) == 1
         Chef::Log.info("Reconfiguration of replicaset successful")
         node.set[:mongodb][:replicaset_member_id] = max_id
-        node.save
+        save_node(node)
         retries = 5
       else
         Chef::Log.warn("Unable to reconfigure replicaset, retrying in 30 seconds")
@@ -195,7 +196,7 @@ class Chef::ResourceDefinitionList::MongoDB
       if result.fetch("ok", nil) == 1
         Chef::Log.info("Reconfiguration of replicaset successful")
         node.set[:mongodb][:replicaset_member_id] = max_id
-        node.save
+        save_node(node)
         retries = 5
       else
         Chef::Log.warn("Unable to reconfigure replicaset, retrying in 30 seconds")
@@ -316,6 +317,12 @@ class Chef::ResourceDefinitionList::MongoDB
       end
     end
   
+  end
+
+  def self.save_node (node)
+    if !Chef::Config[:solo]
+       node.save
+    end
   end
 
 end
