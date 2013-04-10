@@ -37,7 +37,6 @@ class Chef::ResourceDefinitionList::MongoDB
       members << node unless members.include?(node)
     end
 
-    #host_members = members.collect{ |m| m['fqdn'] + ":" + node['mongodb']['port'].to_s }
     host_members = members.collect{ |m| m['fqdn'] + ":" + m['mongodb']['port'].to_s }
 
     is_replicaset = false
@@ -319,6 +318,7 @@ class Chef::ResourceDefinitionList::MongoDB
   
   end
 
+  # This should be built-in to node.save already, but life is unfair.
   def self.save_node (node)
     if !Chef::Config[:solo]
        node.save

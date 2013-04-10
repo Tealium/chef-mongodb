@@ -221,7 +221,7 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
     end
   end
 
-if %w{ ubuntu debian }.include?(node.platform)
+if %w{ ubuntu debian }.include? node.platform
     ruby_block "uncomment_pam_limits" do
       block do
         f = Chef::Util::FileEdit.new('/etc/pam.d/su')
