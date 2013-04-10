@@ -138,7 +138,12 @@ class Chef::ResourceDefinitionList::MongoDB
       members << node unless fqdns.include?(node['fqdn'])
 
       #Reconfigure replicaset
-      #members.sort!{ |x,y| x.name <=> y.name }
+
+      # This sort raises a subtle exception (i.e. unhandled) when using Chef Solo.  Dunno why.
+      if !Chef::Config[:solo]
+        members.sort!{ |x,y| x.name <=> y.name }
+      end
+
       rs_members = []
       members.each_index do |n|
         Chef::Log.info(n)
