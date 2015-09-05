@@ -5,4 +5,4 @@ kill timeout 30 # wait 30s between SIGTERM and SIGKILL.
 start on runlevel [2345]
 stop on runlevel [06]
 
-exec /usr/local/bin/oldboy <%= @when_to_run ? "--when #{@when_to_run}" : "" %> <%= "#{@token}" %>
+exec /usr/local/bin/oldboy --throttle 20 <%= @when_to_run ? "--when #{@when_to_run}" : "" %> <%= "#{@token}" %>
