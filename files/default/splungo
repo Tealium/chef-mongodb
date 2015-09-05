@@ -1,0 +1,232 @@
+#!/usr/bin/env python
+
+desc = """
+
+Splungo - Put MongoDB stats in Splunk
+
+"""
+
+from pymongo import MongoClient
+from pymongo.errors import PyMongoError
+from bson.objectid import ObjectId
+import logging
+from logging.handlers import SysLogHandler
+from splunk_handler import SplunkHandler
+from time import sleep
+import arrow
+import re
+import random
+import sys
+import traceback
+import argparse
+import daemon
+
+
+def whoami():
+   from socket import gethostbyname
+   from socket import getfqdn
+   try:
+      fqdn = getfqdn()
+   except Exception as e:
+      logging.warning("can't get my FQDN: %s" % e)
+   try:
+      ip = ""
+      if fqdn:
+	 ip = gethostbyname(fqdn)
+   except Exception as e:
+      logging.warning("can't get my IP: %s" % e)
+   if fqdn and ip:
+      whoami = "%s (%s)" % (fqdn, ip)
+   elif fqdn:
+      whoami = fqdn
+   elif ip:
+      whoami = ip
+   else:
+      whoami = None
+      logging.warning("I don't know who I am!")
+   return whoami
+
+
+class MyLogFilter(logging.Filter):
+   def __init__(self, *allowed):
+      self.allowed = [logging.Filter(name) for name in allowed]
+
+   def filter(self, record):
+      return any(f.filter(record) for f in self.allowed)
+
+
+
+class DbStats(dict):
+
+   def __init__(self, db):
+
+      try:
+
+	 stats = db.command("dbstats",scale=1024)
+	 self.update(stats)
+
+      except PyMongoError as e:
+	 logging.warning("%s" % e)
+	 pass
+
+
+class CollectionStats(dict):
+
+   def __init__(self, db, colls=[]):
+
+      try:
+
+	 stats = dict()
+	 for coll in colls:
+	    stats[coll] = db.command("collstats",coll)
+	 self.update(stats)
+
+      except PyMongoError as e:
+	 logging.warning("%s" % e)
+	 pass
+
+
+def positive_integer(i):
+   try:
+      i = int(i)
+      if i < 1: raise ValueError
+   except ValueError:
+      raise argparse.ArgumentTypeError("argument must be a "
+                                       "positive integer")
+   return i
+
+
+def parse_args():
+
+   gargle = argparse.ArgumentParser(prog = "splungo", description=desc,
+	       usage='%(prog)s [options] <value>',
+	       formatter_class = argparse.RawDescriptionHelpFormatter)
+
+   gargle.add_argument('--host', dest='dbHost', nargs="*", metavar="<host:port> [<host:port> ...]",
+		      help='MongoDB server hostname or IP (default: None)')
+
+   gargle.add_argument('--db', dest='dbName', metavar="<database name>",
+	 help='Database of interest. (default: datacloud)',
+	 default='datacloud')
+
+   gargle.add_argument('--colls', dest='dbColls', metavar="<collection> [<collection> ...]",
+	 help='Collections of interest. (default: visitor_profiles visitor_visits)',
+	 default=['visitor_profiles', 'visitor_visits'])
+
+   gargle.add_argument('--splunkHost', dest='splunkHost', metavar="<host>",
+		      help='Splunk indexer host. (default: 10.221.1.17)',
+		      default='10.221.1.17')
+
+   gargle.add_argument('--splunkPort', dest='splunkPort', metavar="<port>",
+		      type=positive_integer,
+		      help='Splunk indexer port. (default: 8089)',
+		      default=8089)
+
+   gargle.add_argument('--interval', dest='interval', metavar="<secs>",
+		      type=positive_integer,
+		      help='Interval in seconds between stats gathering activity. (default: 120)',
+		      default=120)
+
+   gargle.add_argument('--verbose', action='store_true',
+		      help='log to stderr in addition to syslog (default: False)')
+
+   gargle.add_argument('--debug', action='store_true',
+		      help='log debugging info to stderr (default: False)')
+
+   return gargle.parse_args()
+
+
+def main():
+
+   args = parse_args()
+
+   if args.verbose:
+      logLevel = logging.DEBUG
+   else:
+      logLevel = logging.INFO
+
+   logging.root.name = 'splungo'
+   logging.root.setLevel(logLevel)
+
+   formatter = logging.Formatter('%(name)s: %(levelname)s: %(message)s')
+
+   if args.debug:
+      stderr = logging.StreamHandler()
+      stderr.setFormatter(formatter)
+      stderr.setLevel(logging.DEBUG)
+      logging.root.addHandler(stderr)
+      keepOpen = stderr.stream.fileno()
+   else:
+      syslog = SysLogHandler(address='/dev/log')
+      syslog.setFormatter(formatter)
+      syslog.setLevel(logLevel)
+      syslog.addFilter(MyLogFilter('splungo'))
+      logging.root.addHandler(syslog)
+      keepOpen = syslog.socket.fileno()
+
+   urglefloggah = daemon.DaemonContext()
+   urglefloggah.detach_process = not args.debug
+   urglefloggah.files_preserve = [keepOpen]
+
+   if args.debug:
+      urglefloggah.stderr = stderr.stream
+      
+   try:
+      with urglefloggah:
+
+	 try:
+	    splunk_handler = SplunkHandler(
+	       host=args.splunkHost,
+	       port=args.splunkPort,
+	       username='datacloud_purge',
+	       password='Purge4Tealium',
+	       index='datacloud_db',
+	       hostname=whoami(),
+	       verify=False
+	    )
+
+	    splunk = logging.getLogger('splunk')
+	    splunk.setLevel(logging.INFO)
+	    splunk.addHandler(splunk_handler)
+
+	 except Exception as e:
+	    logging.warning("Failed to configure splunk handler: %s" % e)
+	    logging.warning("splunk logging defaulting to root logger")
+	    splunk = logging.getLogger('root')
+	    pass
+
+	 while(True):
+
+	    conn = MongoClient(args.dbHost)
+	    db = conn[args.dbName]
+
+	    stats = DbStats(db)
+
+	    splunk.info("timestamp=%s, stattype=database, database=%s, scale=1024, "
+			"dataSize=%d, fileSize=%d, indexSize=%d, indexes=%d, objects=%d"
+			% (arrow.utcnow().isoformat(), args.dbName, 
+			   stats['dataSize'], stats['fileSize'], stats['indexSize'],
+			   stats['indexes'], stats['objects']))
+
+	    stats = CollectionStats(db, args.dbColls)
+
+	    for coll in stats.keys():
+
+	       splunk.info("timestamp=%s, stattype=collection, database=%s, collection=%s, "
+		           "count=%d, size=%d, storageSize=%d, totalIndexSize=%d"
+	                   % (arrow.utcnow().isoformat(), args.dbName, coll, 
+			      stats[coll]['count'], stats[coll]['size'], stats[coll]['storageSize'],
+			      stats[coll]['totalIndexSize']))
+
+	    conn.close()
+
+	    sleep(args.interval)
+
+   except Exception as e:
+      logging.critical("Terminating with uncaught exception: %s" % e)
+      traceback.print_exc(file=sys.stderr)
+      raise SystemExit(1)
+
+
+if __name__ == '__main__': main()
+

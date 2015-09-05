@@ -24,6 +24,31 @@ import argparse
 import daemon
 
 
+def whoami():
+   from socket import gethostbyname
+   from socket import getfqdn
+   try:
+      fqdn = getfqdn()
+   except Exception as e:
+      logging.warning("can't get my FQDN: %s" % e)
+   try:
+      ip = ""
+      if fqdn:
+	 ip = gethostbyname(fqdn)
+   except Exception as e:
+      logging.warning("can't get my IP: %s" % e)
+   if fqdn and ip:
+      whoami = "%s (%s)" % (fqdn, ip)
+   elif fqdn:
+      whoami = fqdn
+   elif ip:
+      whoami = ip
+   else:
+      whoami = None
+      logging.warning("I don't know who I am!")
+   return whoami
+
+
 class MyLogFilter(logging.Filter):
    def __init__(self, *allowed):
       self.allowed = [logging.Filter(name) for name in allowed]
@@ -44,17 +69,23 @@ class OldboyStats():
       self.startTime = arrow.utcnow()
       self.counter = 0
 
-   def total(self):
+   def get(self):
       return self.counter
 
-   def incr(self, value):
+   def put(self, value):
       self.counter = self.counter + value
+
+   def reset(self):
+      self.counter = 0
 
    def durationInSecs(self):
       return (arrow.utcnow() - self.startTime).seconds
 
    def ratePerHour(self):
       return ((float(self.counter) / self.durationInSecs()) * 3600)
+
+   def ratePerMin(self):
+      return (float(self.counter) / self.durationInSecs() * 60)
 
    def ratePerSec(self):
       return (float(self.counter) / self.durationInSecs())
@@ -93,6 +124,9 @@ class Purge(dict):
       if self.throttle < 10:
 	 self.throttle = 10
 
+      if not self.when:
+	 self.when='always'
+
       try:
 	 splunk_handler = SplunkHandler(
 	    host=self.splunkHost,
@@ -100,7 +134,7 @@ class Purge(dict):
 	    username='datacloud_purge',
 	    password='Purge4Tealium',
 	    index='datacloud_purge',
-	    hostname=self.whoami(),
+	    hostname=whoami(),
 	    verify=False
 	 )
 
@@ -115,31 +149,6 @@ class Purge(dict):
 	 pass
 
 
-   def whoami(self):
-      from socket import gethostbyname
-      from socket import getfqdn
-      try:
-	 fqdn = getfqdn()
-      except Exception as e:
-	 logging.warning("can't get my FQDN: %s" % e)
-      try:
-	 ip = ""
-	 if fqdn:
-	    ip = gethostbyname(fqdn)
-      except Exception as e:
-	 logging.warning("can't get my IP: %s" % e)
-      if fqdn and ip:
-	 whoami = "%s (%s)" % (fqdn, ip)
-      elif fqdn:
-	 whoami = fqdn
-      elif ip:
-	 whoami = ip
-      else:
-	 whoami = None
-	 logging.warning("I don't know who I am!")
-      return whoami
-
-
    def time_to_run(self):
 
       if not self.timeRange:
@@ -151,13 +160,15 @@ class Purge(dict):
       if stop < start:
 	 stop = stop.replace(hours=24)
 
+      weekend = False
+      if not self.strict:
+	 dow = arrow.now().weekday()
+	 weekend = (dow == 5) or (dow == 6)
+
       logging.debug("current time is %s" % now)
       logging.debug("should run between %s and %s" % (start, stop))
 
-      if now >= start and now < stop:
-	 return True
-      
-      return False
+      return (now >= start and now < stop or weekend)
 
 
    def run(self):
@@ -165,16 +176,28 @@ class Purge(dict):
       while (True):
 
 	 if self.time_to_run():
+	    self.profileStats.reset()
+	    self.visitStats.reset()
 	    logging.info("purging")
-            self.purge() 
-	    logging.info("purged %d profiles (%.02f/s) and %d visits (%.02f/s)"
-		         % (self.profileStats.total(), self.profileStats.ratePerSec(),
-			    self.visitStats.total(), self.visitStats.ratePerSec()))
 
-	    self.splunk.info("purged_visitor_profiles=%d, purged_visitor_profiles_per_sec=%.02f, "
+            self.purge() 
+
+	    logging.info("purged %d profiles (%.02f/s) and %d visits (%.02f/s)"
+		         % (self.profileStats.get(), self.profileStats.ratePerSec(),
+			    self.visitStats.get(), self.visitStats.ratePerSec()))
+
+	    self.splunk.info("timestamp=%s, status=active, batch_size=%d, throttle=%d, when=%s, "
+		             "purged_visitor_profiles=%d, purged_visitor_profiles_per_sec=%.02f, "
 		             "purged_visitor_visits=%d, purged_visitor_visits_per_sec=%.02f"
-			     % (self.profileStats.total(), self.profileStats.ratePerSec(),
-				self.visitStats.total(), self.visitStats.ratePerSec()))
+			     % (arrow.utcnow().isoformat(), self.batchSize, self.throttle, self.when, self.profileStats.get(),
+				self.profileStats.ratePerSec(), self.visitStats.get(), self.visitStats.ratePerSec()))
+
+	 else:
+
+	    self.splunk.info("timestamp=%s, status=inactive, batch_size=%d, throttle=%d, when=%s, "
+		             "purged_visitor_profiles=0, purged_visitor_profiles_per_sec=0, "
+		             "purged_visitor_visits=0, purged_visitor_visits_per_sec=0"
+			     % (arrow.utcnow().isoformat(), self.batchSize, self.throttle, self.when))
 
 	 sleep(self.throttle)
 
@@ -195,12 +218,13 @@ class Purge(dict):
 						   "expire_at": { "$lt" : now } },
 						 { "_id" : 1, "shard_token" : 1 }
 						 ).limit(self.batchSize).batch_size(self.batchSize):
+
 	    v_result = self.db.visitor_visits.delete_many( { "shard_token" : target["shard_token"],
 	                                                "visitor_id" : target["_id"] })
-	    self.visitStats.incr(v_result.deleted_count)
+	    self.visitStats.put(v_result.deleted_count)
 	    p_result = self.db.visitor_profiles.delete_many( { "shard_token" : target["shard_token"],
 	                                                       "_id" : target["_id"] })
-	    self.profileStats.incr(p_result.deleted_count)
+	    self.profileStats.put(p_result.deleted_count)
 
       except PyMongoError as e:
 	 logging.warning("%s" % e)
@@ -237,7 +261,10 @@ def parse_args():
 	 default='datacloud')
 
    gargle.add_argument('--when', dest='when', metavar="<start_time-stop_time>",
-	 help='Time range for when purging is allowed.  Specified in 24hr clock format as hh:mm-hh:mm. (default: Always)')
+	 help='Daily time window for when purging is allowed.  Specified in 24hr clock format as hh:mm-hh:mm. (default: Always)')
+
+   gargle.add_argument('--strict', action='store_true',
+	 help='Apply time window to weekends too.  Otherwise, purge constantly during local weekends. (default: False)')
 
    gargle.add_argument('--throttle', dest='throttle', metavar="<seconds>",
 		      type=positive_integer,
