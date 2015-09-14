@@ -115,38 +115,40 @@ class Purge(dict):
       for k in args:
 	 setattr(self, k, args[k])
 
-      self.dbConn = MongoClient(self.dbHost, self.dbPort)
-      self.db = self.dbConn[self.dbName]
-
-      self.profileStats = OldboyStats()
-      self.visitStats = OldboyStats()
-
-      if self.throttle < 10:
-	 self.throttle = 10
-
       if not self.when:
 	 self.when='always'
 
-      try:
-	 splunk_handler = SplunkHandler(
-	    host=self.splunkHost,
-	    port=self.splunkPort,
-	    username='datacloud_purge',
-	    password='Purge4Tealium',
-	    index='datacloud_purge',
-	    hostname=whoami(),
-	    verify=False
-	 )
+      if not self.test:
 
-	 self.splunk = logging.getLogger('splunk')
-	 self.splunk.setLevel(logging.INFO)
-	 self.splunk.addHandler(splunk_handler)
+	 self.dbConn = MongoClient(self.dbHost, self.dbPort)
+	 self.db = self.dbConn[self.dbName]
 
-      except Exception as e:
-	 logging.warning("Failed to configure splunk handler: %s" % e)
-	 logging.warning("splunk logging defaulting to root logger")
-	 self.splunk = logging.getLogger('root')
-	 pass
+	 self.profileStats = OldboyStats()
+	 self.visitStats = OldboyStats()
+
+	 if self.throttle < 10:
+	    self.throttle = 10
+
+	 try:
+	    splunk_handler = SplunkHandler(
+	       host=self.splunkHost,
+	       port=self.splunkPort,
+	       username='datacloud_purge',
+	       password='Purge4Tealium',
+	       index='datacloud_purge',
+	       hostname=whoami(),
+	       verify=False
+	    )
+
+	    self.splunk = logging.getLogger('splunk')
+	    self.splunk.setLevel(logging.INFO)
+	    self.splunk.addHandler(splunk_handler)
+
+	 except Exception as e:
+	    logging.warning("Failed to configure splunk handler: %s" % e)
+	    logging.warning("splunk logging defaulting to root logger")
+	    self.splunk = logging.getLogger('root')
+	    pass
 
 
    def time_to_run(self):
@@ -158,7 +160,7 @@ class Purge(dict):
       start = now.replace(hour=self.timeRange.startHour,minute=self.timeRange.startMin,second=0,microsecond=0)
       stop = now.replace(hour=self.timeRange.stopHour,minute=self.timeRange.stopMin,second=0,microsecond=0)
       if stop < start:
-	 stop = stop.replace(hours=24)
+	 start = stop.replace(hours=-24)
 
       weekend = False
       if not self.strict:
@@ -266,6 +268,9 @@ def parse_args():
    gargle.add_argument('--strict', action='store_true',
 	 help='Apply time window to weekends too.  Otherwise, purge constantly during local weekends. (default: False)')
 
+   gargle.add_argument('--test', action='store_true',
+	 help='Only checks to see if purging would be active for given time window. (default: False)')
+
    gargle.add_argument('--throttle', dest='throttle', metavar="<seconds>",
 		      type=positive_integer,
 		      help='Seconds to pause between purge batches (minimum 10). (default: 60)',
@@ -308,6 +313,25 @@ def parse_args():
    return gargle.parse_args()
 
 
+def test(args):
+
+   if args.when:
+      timeRange = TimeRange(args.when)
+      logging.debug("start hour = %d, start min = %d, stop hour = %d, stop min = %d" % (timeRange.startHour,
+										    timeRange.startMin,
+										    timeRange.stopHour,
+										    timeRange.stopMin))
+   else:
+      timeRange = None
+   args.timeRange = timeRange
+
+   purge = Purge(vars(args))
+   if purge.time_to_run():
+      print "active"
+   else:
+      print "inactive"
+
+
 def main():
 
    args = parse_args()
@@ -322,7 +346,7 @@ def main():
 
    formatter = logging.Formatter('%(name)s: %(levelname)s: %(message)s')
 
-   if args.debug:
+   if args.debug or args.test:
       stderr = logging.StreamHandler()
       stderr.setFormatter(formatter)
       stderr.setLevel(logging.DEBUG)
@@ -335,6 +359,10 @@ def main():
       syslog.addFilter(MyLogFilter('oldboy'))
       logging.root.addHandler(syslog)
       keepOpen = syslog.socket.fileno()
+
+   if (args.test):
+      test(args)
+      sys.exit(0)
 
    urglefloggah = daemon.DaemonContext()
    urglefloggah.detach_process = not args.debug
