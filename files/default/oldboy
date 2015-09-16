@@ -9,6 +9,7 @@ Fight to remove stale Audience Stream profiles and visits.
 """
 
 from pymongo import MongoClient
+from pymongo import read_preferences
 from pymongo.errors import PyMongoError
 from bson.objectid import ObjectId
 import logging
@@ -120,7 +121,7 @@ class Purge(dict):
 
       if not self.test:
 
-	 self.dbConn = MongoClient(self.dbHost, self.dbPort)
+	 self.dbConn = MongoClient(self.dbHost, self.dbPort, read_preference=read_preferences.SecondaryPreferred())
 	 self.db = self.dbConn[self.dbName]
 
 	 self.profileStats = OldboyStats()
