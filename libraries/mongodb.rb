@@ -53,7 +53,11 @@ class Chef::ResourceDefinitionList::MongoDB
     rs_members = []
     rs_options = {}
     members.each_index do |n|
-      host = "#{members[n]['fqdn']}:#{members[n]['mongodb']['config']['port']}"
+      if node['mongodb']['use_ips'] == true
+	 host = "#{members[n]['ipaddress']}:#{members[n]['mongodb']['config']['port']}"
+      else
+	 host = "#{members[n]['fqdn']}:#{members[n]['mongodb']['config']['port']}"
+      end
       rs_options[host] = {}
       rs_options[host]['arbiterOnly'] = true if members[n]['mongodb']['replica_arbiter_only']
       rs_options[host]['buildIndexes'] = false unless members[n]['mongodb']['replica_build_indexes']
@@ -112,7 +116,7 @@ class Chef::ResourceDefinitionList::MongoDB
       if config['_id'] == name && config['members'] == rs_members
         # config is up-to-date, do nothing
         Chef::Log.info("Replicaset '#{name}' already configured")
-      elsif config['_id'] == name && config['members'] == rs_member_ips
+      elsif config['_id'] == name && config['members'] == rs_member_ips && node['mongodb']['use_ips'] != true
         # config is up-to-date, but ips are used instead of hostnames, change config to hostnames
         Chef::Log.info("Need to convert ips to hostnames for replicaset '#{name}'")
         old_members = config['members'].map { |m| m['host'] }
