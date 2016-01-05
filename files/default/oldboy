@@ -4,7 +4,7 @@ desc = """
 
 Oldboy - https://www.youtube.com/watch?v=eRBwvIX7Sao
 
-Fight to remove stale Audience Stream profiles and visits.
+Fight to remove stale Audience Stream profiles.
 
 """
 
@@ -94,6 +94,14 @@ class OldboyStats():
 
 class TimeRange():
 
+   zones = dict();
+
+   # huzzah for hard coding
+   zones[11000000] = "US/Pacific"
+   zones[21000000] = "US/Eastern"
+   zones[31000000] = "Europe/Dublin"
+   zones[71000000] = "Europe/Berlin"
+
    def __init__(self, range=None):
       self.startHour = None
       self.startMin = None
@@ -125,7 +133,7 @@ class Purge(dict):
 	 self.db = self.dbConn[self.dbName]
 
 	 self.profileStats = OldboyStats()
-	 self.visitStats = OldboyStats()
+	 # self.visitStats = OldboyStats()
 
 	 if self.throttle < 10:
 	    self.throttle = 10
@@ -157,18 +165,22 @@ class Purge(dict):
       if not self.timeRange:
 	 return True
 
-      now = arrow.utcnow()
+      utc = arrow.utcnow()
+      zone = self.timeRange.zones[self.shardTokenPrefix]
+      now = utc.to(zone)
       start = now.replace(hour=self.timeRange.startHour,minute=self.timeRange.startMin,second=0,microsecond=0)
       stop = now.replace(hour=self.timeRange.stopHour,minute=self.timeRange.stopMin,second=0,microsecond=0)
-      if stop < start:
-	 start = stop.replace(hours=-24)
+      if stop < start and now.hour >= 12:
+	 stop = stop.replace(hours=24)
+      if stop < start and now.hour < 12:
+	 start = start.replace(hours=-24)
 
       weekend = False
       if not self.strict:
-	 dow = arrow.now().weekday()
+	 dow = now.weekday()
 	 weekend = (dow == 5) or (dow == 6)
 
-      logging.debug("current time is %s" % now)
+      logging.debug("current %s time is %s" % (zone, now))
       logging.debug("should run between %s and %s" % (start, stop))
 
       return (now >= start and now < stop or weekend)
@@ -176,31 +188,47 @@ class Purge(dict):
 
    def run(self):
 
+      self.splunk.info("timestamp=%s, status=started, throttle=%d, when=%s, "
+		       "purged_visitor_profiles=0, purged_visitor_profiles_per_sec=0"
+		       % (arrow.utcnow().isoformat(), self.throttle, self.when))
+
       while (True):
 
 	 if self.time_to_run():
 	    self.profileStats.reset()
-	    self.visitStats.reset()
+	    # self.visitStats.reset()
 	    logging.info("purging")
 
             self.purge() 
 
-	    logging.info("purged %d profiles (%.02f/s) and %d visits (%.02f/s)"
-		         % (self.profileStats.get(), self.profileStats.ratePerSec(),
-			    self.visitStats.get(), self.visitStats.ratePerSec()))
+	    # logging.info("purged %d profiles (%.02f/s) and %d visits (%.02f/s)"
+	    # 	         % (self.profileStats.get(), self.profileStats.ratePerSec(),
+	    #		    self.visitStats.get(), self.visitStats.ratePerSec()))
 
-	    self.splunk.info("timestamp=%s, status=active, batch_size=%d, throttle=%d, when=%s, "
-		             "purged_visitor_profiles=%d, purged_visitor_profiles_per_sec=%.02f, "
-		             "purged_visitor_visits=%d, purged_visitor_visits_per_sec=%.02f"
-			     % (arrow.utcnow().isoformat(), self.batchSize, self.throttle, self.when, self.profileStats.get(),
-				self.profileStats.ratePerSec(), self.visitStats.get(), self.visitStats.ratePerSec()))
+	    logging.info("purged %d profiles (%.02f/s)"
+		         % (self.profileStats.get(), self.profileStats.ratePerSec()))
+
+	    # self.splunk.info("timestamp=%s, status=active, batch_size=%d, throttle=%d, when=%s, "
+	    # 	             "purged_visitor_profiles=%d, purged_visitor_profiles_per_sec=%.02f, "
+	    # 	             "purged_visitor_visits=%d, purged_visitor_visits_per_sec=%.02f"
+	    # 		     % (arrow.utcnow().isoformat(), self.batchSize, self.throttle, self.when, self.profileStats.get(),
+	    # 			self.profileStats.ratePerSec(), self.visitStats.get(), self.visitStats.ratePerSec()))
+
+	    self.splunk.info("timestamp=%s, status=active, throttle=%d, when=%s, "
+		             "purged_visitor_profiles=%d, purged_visitor_profiles_per_sec=%.02f"
+			     % (arrow.utcnow().isoformat(), self.throttle, self.when, self.profileStats.get(),
+				self.profileStats.ratePerSec()))
 
 	 else:
 
-	    self.splunk.info("timestamp=%s, status=inactive, batch_size=%d, throttle=%d, when=%s, "
-		             "purged_visitor_profiles=0, purged_visitor_profiles_per_sec=0, "
-		             "purged_visitor_visits=0, purged_visitor_visits_per_sec=0"
-			     % (arrow.utcnow().isoformat(), self.batchSize, self.throttle, self.when))
+	    # self.splunk.info("timestamp=%s, status=inactive, batch_size=%d, throttle=%d, when=%s, "
+	    # 	             "purged_visitor_profiles=0, purged_visitor_profiles_per_sec=0, "
+	    #               "purged_visitor_visits=0, purged_visitor_visits_per_sec=0"
+	    # 		     % (arrow.utcnow().isoformat(), self.batchSize, self.throttle, self.when))
+
+	    self.splunk.info("timestamp=%s, status=inactive, throttle=%d, when=%s, "
+		             "purged_visitor_profiles=0, purged_visitor_profiles_per_sec=0"
+			     % (arrow.utcnow().isoformat(), self.throttle, self.when))
 
 	 sleep(self.throttle)
 
@@ -208,26 +236,33 @@ class Purge(dict):
    def purge(self):
 
       random.seed()
-      start = random.randint(self.shardTokenPrefix, self.shardTokenPrefix + self.maxPart - self.partRange)
+      start = random.randint(self.shardTokenPrefix, self.shardTokenPrefix + self.maxPart + 1 - self.partRange)
       end = start + self.partRange
 
       logging.debug("purging token range %d to %s" % (start, end))
 
-      now = arrow.utcnow().naive
+      now = arrow.utcnow()
+
+      # temporarily restrict deletes to profiles that expired over 6 months ago
+      now = now.replace(months=-6).naive
 
       try:
 
-	 for target in self.db.visitor_profiles.find( { "shard_token" : { "$gte" : start, "$lte" : end },
-						   "expire_at": { "$lt" : now } },
-						 { "_id" : 1, "shard_token" : 1 }
-						 ).limit(self.batchSize).batch_size(self.batchSize):
+#       for target in self.db.visitor_profiles.find( { "shard_token" : { "$gte" : start, "$lte" : end },
+# 						   "expire_at": { "$lt" : now } },
+# 						 { "_id" : 1, "shard_token" : 1 }
+# 						 ).limit(self.batchSize).batch_size(self.batchSize):
+# 
+# 	    v_result = self.db.visitor_visits.delete_many( { "shard_token" : target["shard_token"],
+# 	                                                "visitor_id" : target["_id"] })
+# 	    self.visitStats.put(v_result.deleted_count)
+# 	    p_result = self.db.visitor_profiles.delete_many( { "shard_token" : target["shard_token"],
+# 	                                                       "_id" : target["_id"] })
+# 	    self.profileStats.put(p_result.deleted_count)
 
-	    v_result = self.db.visitor_visits.delete_many( { "shard_token" : target["shard_token"],
-	                                                "visitor_id" : target["_id"] })
-	    self.visitStats.put(v_result.deleted_count)
-	    p_result = self.db.visitor_profiles.delete_many( { "shard_token" : target["shard_token"],
-	                                                       "_id" : target["_id"] })
-	    self.profileStats.put(p_result.deleted_count)
+         p_result = self.db.visitor_profiles.delete_many( { "shard_token" : { "$gte" : start, "$lt" : end },
+ 						            "expire_at": { "$lt" : now } })
+         self.profileStats.put(p_result.deleted_count)
 
       except PyMongoError as e:
 	 logging.warning("%s" % e)
@@ -260,7 +295,7 @@ def parse_args():
 		      default=27017)
 
    gargle.add_argument('--db', dest='dbName', metavar="<database name>",
-	 help='Database containing visitor_profiles and visitor_visits. (default: datacloud)',
+	 help='Database containing visitor_profiles. (default: datacloud)',
 	 default='datacloud')
 
    gargle.add_argument('--when', dest='when', metavar="<start_time-stop_time>",
@@ -277,10 +312,10 @@ def parse_args():
 		      help='Seconds to pause between purge batches (minimum 10). (default: 60)',
 		      default=60)
 
-   gargle.add_argument('--batch', dest='batchSize', metavar="<int>",
-		      type=positive_integer,
-		      help='Size of purge batches. (default: 500)',
-		      default=500)
+# gargle.add_argument('--batch', dest='batchSize', metavar="<int>",
+# 		      type=positive_integer,
+# 		      help='Size of purge batches. (default: 500)',
+# 		      default=500)
 
    gargle.add_argument('--partition-range', dest='partRange', metavar="<int>",
 		      type=positive_integer,
@@ -366,7 +401,7 @@ def main():
       sys.exit(0)
 
    urglefloggah = daemon.DaemonContext()
-   urglefloggah.detach_process = not args.debug
+   urglefloggah.detach_process = False
    urglefloggah.files_preserve = [keepOpen]
 
    if args.debug:

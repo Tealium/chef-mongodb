@@ -51,11 +51,12 @@ default[:mongodb][:backup][:archive_days] = "30"
 default[:mongodb][:token]['us-west-1'] = 11000000
 default[:mongodb][:token]['us-east-1'] = 21000000
 default[:mongodb][:token]['eu-west-1'] = 31000000
+default[:mongodb][:token]['eu-central-1'] = 71000000
 
-# All times UTC
-default[:mongodb][:purge_window]['us-west-1'] = '01:00-14:00'
-default[:mongodb][:purge_window]['us-east-1'] = '22:00-11:00'
-default[:mongodb][:purge_window]['eu-west-1'] = '17:00-06:00'
+# All times local to region
+default[:mongodb][:purge_window]['us-west-1'] = '21:00-05:00'
+default[:mongodb][:purge_window]['us-east-1'] = '21:00-05:00'
+default[:mongodb][:purge_window]['eu-west-1'] = '21:00-05:00'
 
 case node['platform']
 when "freebsd"
