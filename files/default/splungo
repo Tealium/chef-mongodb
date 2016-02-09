@@ -67,7 +67,6 @@ class DbStats(dict):
 
       except PyMongoError as e:
 	 logging.warning("%s" % e)
-	 pass
 
 
 class CollectionStats(dict):
@@ -83,7 +82,6 @@ class CollectionStats(dict):
 
       except PyMongoError as e:
 	 logging.warning("%s" % e)
-	 pass
 
 
 def positive_integer(i):
@@ -110,8 +108,8 @@ def parse_args():
 	 default='datacloud')
 
    gargle.add_argument('--colls', dest='dbColls', metavar="<collection> [<collection> ...]",
-	 help='Collections of interest. (default: visitor_profiles visitor_visits)',
-	 default=['visitor_profiles', 'visitor_visits'])
+	 help='Collections of interest. (default: visitor_profiles)',
+	 default=['visitor_profiles'])
 
    gargle.add_argument('--splunkHost', dest='splunkHost', metavar="<host>",
 		      help='Splunk indexer host. (default: 10.221.1.17)',
@@ -165,7 +163,7 @@ def main():
       keepOpen = syslog.socket.fileno()
 
    urglefloggah = daemon.DaemonContext()
-   urglefloggah.detach_process = not args.debug
+   urglefloggah.detach_process = False
    urglefloggah.files_preserve = [keepOpen]
 
    if args.debug:
@@ -197,30 +195,34 @@ def main():
 
 	 while(True):
 
-	    conn = MongoClient(args.dbHost)
-	    db = conn[args.dbName]
+	    try:
+	       conn = MongoClient(args.dbHost)
+	       db = conn[args.dbName]
 
-	    stats = DbStats(db)
+	       stats = DbStats(db)
 
-	    splunk.info("timestamp=%s, stattype=database, database=%s, scale=1024, "
-			"dataSize=%d, fileSize=%d, indexSize=%d, indexes=%d, objects=%d"
-			% (arrow.utcnow().isoformat(), args.dbName, 
-			   stats['dataSize'], stats['fileSize'], stats['indexSize'],
-			   stats['indexes'], stats['objects']))
+	       splunk.info("timestamp=%s, stattype=database, database=%s, scale=1024, "
+			   "dataSize=%d, fileSize=%d, indexSize=%d, indexes=%d, objects=%d"
+			   % (arrow.utcnow().isoformat(), args.dbName, 
+			      stats['dataSize'], stats['fileSize'], stats['indexSize'],
+			      stats['indexes'], stats['objects']))
 
-	    stats = CollectionStats(db, args.dbColls)
+	       stats = CollectionStats(db, args.dbColls)
 
-	    for coll in stats.keys():
+	       for coll in stats.keys():
 
-	       splunk.info("timestamp=%s, stattype=collection, database=%s, collection=%s, "
-		           "count=%d, size=%d, storageSize=%d, totalIndexSize=%d"
-	                   % (arrow.utcnow().isoformat(), args.dbName, coll, 
-			      stats[coll]['count'], stats[coll]['size'], stats[coll]['storageSize'],
-			      stats[coll]['totalIndexSize']))
+		  splunk.info("timestamp=%s, stattype=collection, database=%s, collection=%s, "
+			      "count=%d, size=%d, storageSize=%d, totalIndexSize=%d"
+			      % (arrow.utcnow().isoformat(), args.dbName, coll, 
+				 stats[coll]['count'], stats[coll]['size'], stats[coll]['storageSize'],
+				 stats[coll]['totalIndexSize']))
 
-	    conn.close()
+	       conn.close()
 
-	    sleep(args.interval)
+	       sleep(args.interval)
+	       
+	    except Exception as e:
+	       logging.warning("%s" % e)
 
    except Exception as e:
       logging.critical("Terminating with uncaught exception: %s" % e)
