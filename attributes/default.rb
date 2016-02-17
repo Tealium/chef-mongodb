@@ -57,6 +57,7 @@ default[:mongodb][:token]['eu-central-1'] = 71000000
 default[:mongodb][:purge_window]['us-west-1'] = '21:00-05:00'
 default[:mongodb][:purge_window]['us-east-1'] = '21:00-05:00'
 default[:mongodb][:purge_window]['eu-west-1'] = '21:00-05:00'
+default[:mongodb][:purge_window]['eu-central-1'] = '21:00-05:00'
 
 case node['platform']
 when "freebsd"
