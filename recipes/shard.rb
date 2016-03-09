@@ -51,3 +51,8 @@ mongodb_instance "mongodb_shard" do
   end
   enable_rest node[:mongodb][:enable_rest]
 end
+
+cron "chef-client" do
+  user "root"
+  action :delete
+end
