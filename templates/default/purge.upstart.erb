@@ -7,4 +7,4 @@ stop on runlevel [06]
 
 respawn
 
-exec /usr/local/bin/oldboy --throttle 60 --partition-range 3 <%= @when_to_run ? "--when #{@when_to_run}" : "" %> <%= "#{@token}" %>
+exec /usr/local/bin/oldboy --throttle 60 --partition-range 5 <%= @when_to_run ? "--when #{@when_to_run}" : "" %> <%= "#{@token}" %>
