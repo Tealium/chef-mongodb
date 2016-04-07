@@ -28,6 +28,13 @@ cookbook_file '/usr/local/bin/mongo_compact.rb' do
    action :create
 end
 
+cookbook_file '/usr/local/bin/tealium_compact.rb' do
+   source 'tealium_compact.rb'
+   owner 'root'
+   mode '0755'
+   action :create
+end
+
 include_recipe "mongodb::default"
 
 # disable and stop the default mongodb instance
