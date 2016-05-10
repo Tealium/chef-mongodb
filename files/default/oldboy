@@ -241,32 +241,35 @@ class Purge(dict):
 
       logging.debug("purging token range %d to %s" % (start, end))
 
-      now = arrow.utcnow()
+      now = arrow.utcnow().naive
 
       # temporarily restrict deletes to profiles that expired over 6 months ago
-      now = now.replace(months=-6).naive
+      #now = now.replace(months=-6).naive
 
       try:
 
-#       for target in self.db.visitor_profiles.find( { "shard_token" : { "$gte" : start, "$lte" : end },
-# 						   "expire_at": { "$lt" : now } },
-# 						 { "_id" : 1, "shard_token" : 1 }
-# 						 ).limit(self.batchSize).batch_size(self.batchSize):
-# 
-# 	    v_result = self.db.visitor_visits.delete_many( { "shard_token" : target["shard_token"],
-# 	                                                "visitor_id" : target["_id"] })
-# 	    self.visitStats.put(v_result.deleted_count)
-# 	    p_result = self.db.visitor_profiles.delete_many( { "shard_token" : target["shard_token"],
-# 	                                                       "_id" : target["_id"] })
-# 	    self.profileStats.put(p_result.deleted_count)
+       for target in self.db.visitor_profiles.find( { "shard_token" : { "$gte" : start, "$lte" : end },
+ 						      "expire_at" : { "$lt" : now },
+						      "$or" : [ {"replaced_by" : { "$exists" : 0 } },
+							        {"replaced_by" : ""} ] },
+						    { "_id" : 1, "shard_token" : 1, "replaces" : 1 }
+ 						 ).hint("shard_token_1_expire_at_1_replaced_by_1").limit(self.batchSize).batch_size(self.batchSize):
+ 
+	  if "replaces" in target:
+	     v_result = self.db.visitor_profiles.delete_many( { "_id" : { "$in" : target["replaces"] } })
+	     p_result = self.db.visitor_profiles.delete_many( { "shard_token" : target["shard_token"], "_id" : target["_id"] })
+	     self.profileStats.put(v_result.deleted_count + p_result.deleted_count)
+	  else:
+	     p_result = self.db.visitor_profiles.delete_many( { "shard_token" : target["shard_token"], "_id" : target["_id"] })
+	     self.profileStats.put(p_result.deleted_count)
 
-         p_result = self.db.visitor_profiles.delete_many( { "shard_token" : { "$gte" : start, "$lt" : end },
- 						            "expire_at": { "$lt" : now } })
-         self.profileStats.put(p_result.deleted_count)
+#         p_result = self.db.visitor_profiles.delete_many( { "shard_token" : { "$gte" : start, "$lt" : end },
+# 						            "expire_at": { "$lt" : now } })
+#         self.profileStats.put(p_result.deleted_count)
 
       except PyMongoError as e:
-	 logging.warning("%s" % e)
-	 pass
+	  logging.warning("%s" % e)
+	  pass
 
 
 def positive_integer(i):
@@ -312,10 +315,10 @@ def parse_args():
 		      help='Seconds to pause between purge batches (minimum 10). (default: 60)',
 		      default=60)
 
-# gargle.add_argument('--batch', dest='batchSize', metavar="<int>",
-# 		      type=positive_integer,
-# 		      help='Size of purge batches. (default: 500)',
-# 		      default=500)
+   gargle.add_argument('--batch', dest='batchSize', metavar="<int>",
+ 		      type=positive_integer,
+ 		      help='Size of purge batches. (default: 500)',
+ 		      default=500)
 
    gargle.add_argument('--partition-range', dest='partRange', metavar="<int>",
 		      type=positive_integer,
