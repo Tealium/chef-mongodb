@@ -44,8 +44,8 @@ default[:mongodb][:setra] = 128
 
 default[:mongodb][:encfs] = nil
 
-default[:mongodb][:backup][:hour] = "5"
-default[:mongodb][:backup][:minute] = "15"
+default[:mongodb][:backup][:hour] = "2"
+default[:mongodb][:backup][:minute] = "0"
 
 default[:mongodb][:token]['us-west-1'] = 11000000
 default[:mongodb][:token]['us-east-1'] = 21000000
