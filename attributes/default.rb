@@ -17,6 +17,8 @@
 # limitations under the License.
 #
 
+override['aws']['aws_sdk_version'] = '~> 2.6.0'
+
 default[:mongodb][:user] = "mongodb"
 default[:mongodb][:group] = "mongodb"
 default[:mongodb][:data_root] = "/data"
