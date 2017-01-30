@@ -194,7 +194,9 @@ define :mongodb_instance, :mongodb_type => "mongod" , :action => [:enable, :star
     sleep(60)
     supports :status => true, :start => true
     action service_action
-    notifies :start, service_notifies
+    service_notifies.each do |service_notify|
+      notifies :start, service_notify
+    end
     if !replicaset_name.nil?
       notifies :create, "ruby_block[config_replicaset]", :delayed
     end
