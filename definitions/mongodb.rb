@@ -190,9 +190,15 @@ define :mongodb_instance, mongodb_type: 'mongod', action: %i[enable start], port
     sleep(60)
     supports status: true, start: true
     action service_action
-    service_notifies.each do |service_notify|
-      notifies :start, service_notify
+
+    if service_notifies.length.equal?(0)
+      notifies :start, "service[#{name}]"
+    else
+      service_notifies.each do |service_notify|
+        notifies :start, service_notify
+      end
     end
+
     unless replicaset_name.nil?
       notifies :create, 'ruby_block[config_replicaset]', :delayed
     end
