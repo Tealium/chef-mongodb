@@ -11,4 +11,4 @@ kill timeout 30 # wait 30s between SIGTERM and SIGKILL.
    stop on stopping <%= @mongos_dependent_app %>
 <% end -%>
 
-exec sudo -u mongodb <%= @daemon ? "#{@daemon}" : "/usr/bin/mongod" %> --config <%= @configfile ? "#{@configfile}" : "/etc/mongodb.conf" %>
+exec sudo -u mongodb <%= @daemon ? "#{@daemon}" : "/usr/bin/mongod" %> --config <%= @configfile ? "#{@configfile}" : "/etc/mongodb.conf" %> --setParameter releaseConnectionsAfterResponse=true

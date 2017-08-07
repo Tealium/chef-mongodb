@@ -70,3 +70,9 @@ bash "Update system variables" do
   BASH_SCRIPT
 end
 
+cookbook_file '/etc/tealium/tealium-mongo.js' do
+   source 'tealium-mongo.js'
+   owner 'root'
+   mode '0644'
+   action :create
+end

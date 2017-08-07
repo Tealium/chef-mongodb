@@ -28,6 +28,13 @@ cookbook_file '/usr/local/bin/mongo_compact.rb' do
    action :create
 end
 
+cookbook_file '/usr/local/bin/tealium_compact.rb' do
+   source 'tealium_compact.rb'
+   owner 'root'
+   mode '0755'
+   action :create
+end
+
 include_recipe "mongodb::default"
 
 # disable and stop the default mongodb instance
@@ -50,4 +57,9 @@ mongodb_instance "mongodb_shard" do
     replicaset    node
   end
   enable_rest node[:mongodb][:enable_rest]
+end
+
+cron "chef-client" do
+  user "root"
+  action :delete
 end

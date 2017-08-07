@@ -35,3 +35,8 @@ mongodb_instance "mongodb_config" do
   dbpath       node['mongodb']['dbpath']
   enable_rest  node['mongodb']['enable_rest']
 end
+
+cron "chef-client" do
+  user "root"
+  action :delete
+end

@@ -73,3 +73,8 @@ mongodb_instance "mongos" do
   configserver configsvr
   enable_rest  node['mongodb']['enable_rest']
 end
+
+cron "chef-client" do
+  user "root"
+  action :delete
+end
