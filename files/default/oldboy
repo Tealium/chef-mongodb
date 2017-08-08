@@ -23,7 +23,6 @@ import sys
 import traceback
 import argparse
 import daemon
-import threading
 
 
 def whoami():
@@ -118,7 +117,7 @@ class TimeRange():
 	 self.stopMin = int(rangeMatch.group(4))
 
 
-class Purge(threading.Thread):
+class Purge(dict):
 
    def __init__(self, args):
 
@@ -130,12 +129,14 @@ class Purge(threading.Thread):
 
       if not self.test:
 
+	 self.dbConn = MongoClient(self.dbHost, self.dbPort, read_preference=read_preferences.SecondaryPreferred())
 	 self.db = self.dbConn[self.dbName]
 
 	 self.profileStats = OldboyStats()
+	 # self.visitStats = OldboyStats()
 
-	 if self.throttle < 5:
-	    self.throttle = 5
+	 if self.throttle < 10:
+	    self.throttle = 10
 
 	 try:
 	    splunk_handler = SplunkHandler(
@@ -157,8 +158,6 @@ class Purge(threading.Thread):
 	    logging.warning("splunk logging defaulting to root logger")
 	    self.splunk = logging.getLogger('root')
 	    pass
-
-	 super(Purge, self).__init__(target=self.run)
 
 
    def time_to_run(self):
@@ -254,7 +253,7 @@ class Purge(threading.Thread):
 						      "$or" : [ {"replaced_by" : { "$exists" : 0 } },
 							        {"replaced_by" : ""} ] },
 						    { "_id" : 1, "shard_token" : 1, "replaces" : 1 }
- 			 ).hint("shard_token_1_expire_at_1_replaced_by_1").limit(self.batchSize):
+ 						 ).hint("shard_token_1_expire_at_1_replaced_by_1").limit(self.batchSize).batch_size(self.batchSize):
  
 	  if "replaces" in target:
 	     v_result = self.db.visitor_profiles.delete_many( { "_id" : { "$in" : target["replaces"] } })
@@ -263,6 +262,10 @@ class Purge(threading.Thread):
 	  else:
 	     p_result = self.db.visitor_profiles.delete_many( { "shard_token" : target["shard_token"], "_id" : target["_id"] })
 	     self.profileStats.put(p_result.deleted_count)
+
+#         p_result = self.db.visitor_profiles.delete_many( { "shard_token" : { "$gte" : start, "$lt" : end },
+# 						            "expire_at": { "$lt" : now } })
+#         self.profileStats.put(p_result.deleted_count)
 
       except PyMongoError as e:
 	  logging.warning("%s" % e)
@@ -309,18 +312,13 @@ def parse_args():
 
    gargle.add_argument('--throttle', dest='throttle', metavar="<seconds>",
 		      type=positive_integer,
-		      help='Seconds to pause between purge batches (minimum 5). (default: 5)',
-		      default=5)
+		      help='Seconds to pause between purge batches (minimum 10). (default: 60)',
+		      default=60)
 
    gargle.add_argument('--batch', dest='batchSize', metavar="<int>",
  		      type=positive_integer,
  		      help='Size of purge batches. (default: 500)',
  		      default=500)
-
-   gargle.add_argument('--threads', dest='threads', metavar="<int>",
- 		      type=positive_integer,
- 		      help='Number of concurrent purge threads. (default: 4)',
- 		      default=4)
 
    gargle.add_argument('--partition-range', dest='partRange', metavar="<int>",
 		      type=positive_integer,
@@ -425,12 +423,8 @@ def main():
 	    timeRange = None
 	 args.timeRange = timeRange
 
-         if not args.test:
-	    args.dbConn = MongoClient(args.dbHost, args.dbPort, read_preference=read_preferences.SecondaryPreferred())
-
-         for t in xrange(args.threads):
-	    purge = Purge(vars(args))
-	    purge.start()
+	 purge = Purge(vars(args))
+	 purge.run()
 
 	 sys.exit(0)
 
