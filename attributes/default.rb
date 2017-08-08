@@ -1,4 +1,4 @@
-
+#
 # Cookbook Name:: mongodb
 # Attributes:: default
 #
@@ -17,56 +17,95 @@
 # limitations under the License.
 #
 
-override['aws']['aws_sdk_version'] = '~> 2.6.0'
-
-default[:mongodb][:user] = "mongodb"
-default[:mongodb][:group] = "mongodb"
-default[:mongodb][:data_root] = "/data"
-default[:mongodb][:dbpath]       = "/data/mongodb"
-default[:mongodb][:journal_path] = "/data/mongodb/journal" 
-default[:mongodb][:port] = 27017
+# cluster identifier
+default[:mongodb][:client_roles] = []
 default[:mongodb][:cluster_name] = nil
-default[:mongodb][:replicaset_name] = nil
-default[:mongodb][:shard_name] = "default"
-default[:mongodb][:enable_rest] = false
-default[:mongodb][:keep_alive_time] = 300
-default[:mongodb][:ulimits] = Array.new
+default[:mongodb][:shard_name] = 'default'
 
-default[:mongodb][:raid] = nil
-default[:mongodb][:raid_level] = 10
-default[:mongodb][:raid_disk_count] = 4
-default[:mongodb][:raid_disk_size] = 4
-default[:mongodb][:raid_ebs_type] = "standard"
-default[:mongodb][:raid_ebs_piops] = 100
-default[:mongodb][:raid_mount] = "/data"
-default[:mongodb][:raid_snaps] = nil
-default[:mongodb][:raid_fs] = "ext4"
-default[:mongodb][:raid_fs_opts] = "rw,noatime,nodiratime,nobarrier"
-default[:mongodb][:setra] = 128
+# replica options
+default[:mongodb][:replica_arbiter_only] = false
+default[:mongodb][:replica_build_indexes] = true
+default[:mongodb][:replica_hidden] = false
+default[:mongodb][:replica_slave_delay] = 0
+default[:mongodb][:replica_priority] = 1
+default[:mongodb][:replica_tags] = {}
+default[:mongodb][:replica_votes] = 1
 
-default[:mongodb][:encfs] = nil
+default[:mongodb][:auto_configure][:replicaset] = true
+default[:mongodb][:auto_configure][:sharding] = true
 
-default[:mongodb][:backup][:hour] = "2"
-default[:mongodb][:backup][:minute] = "0"
+# don't use the node's fqdn, but this url instead; something like 'ec2-x-y-z-z.aws.com' or 'cs1.domain.com' (no port)
+# if not provided, will fall back to the FQDN
+default[:mongodb][:configserver_url] = nil
 
-default[:mongodb][:token]['us-west-1'] = 11000000
-default[:mongodb][:token]['us-east-1'] = 21000000
-default[:mongodb][:token]['eu-west-1'] = 31000000
-default[:mongodb][:token]['eu-central-1'] = 71000000
+default[:mongodb][:root_group] = 'root'
+default[:mongodb][:user] = 'mongodb'
+default[:mongodb][:group] = 'mongodb'
 
-# All times local to region
-default[:mongodb][:purge_window]['us-west-1'] = '21:00-05:00'
-default[:mongodb][:purge_window]['us-east-1'] = '21:00-05:00'
-default[:mongodb][:purge_window]['eu-west-1'] = '21:00-05:00'
-default[:mongodb][:purge_window]['eu-central-1'] = '21:00-05:00'
+default[:mongodb][:init_dir] = '/etc/init.d'
+default[:mongodb][:init_script_template] = 'debian-mongodb.init.erb'
+default[:mongodb][:sysconfig_file] = '/etc/default/mongodb'
+default[:mongodb][:sysconfig_file_template] = 'mongodb.sysconfig.erb'
+default[:mongodb][:dbconfig_file_template] = 'mongodb.conf.erb'
+default[:mongodb][:dbconfig_file] = '/etc/mongodb.conf'
 
-case node['platform']
-when "freebsd"
-  default[:mongodb][:defaults_dir] = "/etc/rc.conf.d"
-  default[:mongodb][:init_dir] = "/usr/local/etc/rc.d"
-  default[:mongodb][:root_group] = "wheel"
+default[:mongodb][:package_name] = 'mongodb'
+default[:mongodb][:package_version] = nil
+
+default[:mongodb][:default_init_name] = 'mongodb'
+default[:mongodb][:instance_name] = 'mongodb'
+
+# this option can be "distro" or "mongodb-org"
+default[:mongodb][:install_method] = 'distro'
+
+default[:mongodb][:is_replicaset] = nil
+default[:mongodb][:is_shard] = nil
+default[:mongodb][:is_configserver] = nil
+
+default[:mongodb][:reload_action] = 'restart' # or "nothing"
+
+case node['platform_family']
+when 'freebsd'
+  default[:mongodb][:package_name] = 'mongo-10gen-server'
+  default[:mongodb][:sysconfig_file] = '/etc/rc.conf.d/mongodb'
+  default[:mongodb][:init_dir] = '/usr/local/etc/rc.d'
+  default[:mongodb][:root_group] = 'wheel'
+when 'rhel', 'fedora'
+  # determine the package name
+  # from http://rpm.pbone.net/index.php3?stat=3&limit=1&srodzaj=3&dl=40&search=mongodb
+  # verified for RHEL5,6 Fedora 18,19
+  default[:mongodb][:package_name] = 'mongodb-server'
+  default[:mongodb][:sysconfig_file] = '/etc/sysconfig/mongodb'
+  default[:mongodb][:user] = 'mongod'
+  default[:mongodb][:group] = 'mongod'
+  default[:mongodb][:init_script_template] = 'redhat-mongodb.init.erb'
+  default[:mongodb][:default_init_name] = 'mongod'
+  default[:mongodb][:instance_name] = 'mongod'
+  # then there is this guy
+  if node['platform'] == 'centos' || node['platform'] == 'amazon'
+    Chef::Log.warn("CentOS doesn't provide mongodb, forcing use of mongodb-org repo")
+    default[:mongodb][:install_method] = 'mongodb-org'
+    default[:mongodb][:package_name] = 'mongodb-org'
+  end
+when 'debian'
+  if node['platform'] == 'ubuntu'
+    default[:mongodb][:apt_repo] = 'ubuntu-upstart'
+    default[:mongodb][:init_dir] = '/etc/init/'
+    default[:mongodb][:init_script_template] = 'debian-mongodb.upstart.erb'
+  else
+    default[:mongodb][:apt_repo] = 'debian-sysvinit'
+  end
 else
-  default[:mongodb][:defaults_dir] = "/etc/default"
-  default[:mongodb][:init_dir] = "/etc/init.d"
-  default[:mongodb][:root_group] = "root"
+  Chef::Log.error("Unsupported Platform Family: #{node['platform_family']}")
 end
+
+default[:mongodb][:template_cookbook] = 'mongodb'
+
+default[:mongodb][:key_file_content] = nil
+
+# install the mongo and bson_ext ruby gems at compile time to make them globally available
+# TODO: remove bson_ext once mongo gem supports bson >= 2
+default['mongodb']['ruby_gems'] = {
+  :mongo => nil,
+  :bson_ext => nil
+}

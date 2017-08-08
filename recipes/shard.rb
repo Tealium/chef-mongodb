@@ -19,47 +19,22 @@
 # limitations under the License.
 #
 
-include_recipe "mongodb::raid"
+node.set['mongodb']['is_shard'] = true
+node.set['mongodb']['shard_name'] = node['mongodb']['shard_name']
+node.set['mongodb']['is_replicaset'] = node['mongodb']['is_replicaset']
+node.set['mongodb']['cluster_name'] = node['mongodb']['cluster_name']
 
-cookbook_file '/usr/local/bin/mongo_compact.rb' do
-   source 'mongo_compact.rb'
-   owner 'root'
-   mode '0755'
-   action :create
-end
-
-cookbook_file '/usr/local/bin/tealium_compact.rb' do
-   source 'tealium_compact.rb'
-   owner 'root'
-   mode '0755'
-   action :create
-end
-
-include_recipe "mongodb::default"
-
-# disable and stop the default mongodb instance
-service "mongodb" do
-  supports :status => true, :restart => true
-  action [:disable, :stop]
-end
-
-is_replicated = node[:recipes].include?("mongodb::replicaset")
-
+include_recipe 'mongodb::install'
 
 # we are not starting the shard service with the --shardsvr
 # commandline option because right now this only changes the port it's
 # running on, and we are overwriting this port anyway.
-mongodb_instance "mongodb_shard" do
-  mongodb_type "shard"
-  port         node[:mongodb][:port]
-  dbpath       node[:mongodb][:dbpath]
-  if is_replicated
-    replicaset    node
-  end
-  enable_rest node[:mongodb][:enable_rest]
-end
-
-cron "chef-client" do
-  user "root"
-  action :delete
+mongodb_instance node['mongodb']['instance_name'] do
+  mongodb_type 'shard'
+  port         node['mongodb']['config']['port']
+  logpath      node['mongodb']['config']['logpath']
+  dbpath       node['mongodb']['config']['dbpath']
+  replicaset   node if node['mongodb']['is_replicaset']
+  enable_rest  node['mongodb']['config']['rest']
+  smallfiles   node['mongodb']['config']['smallfiles']
 end
