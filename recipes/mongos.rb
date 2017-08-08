@@ -19,62 +19,35 @@
 # limitations under the License.
 #
 
-include_recipe "mongodb"
-include_recipe "mongodb::purge"
+node.set['mongodb']['is_mongos'] = true
+node.set['mongodb']['shard_name'] = node['mongodb']['shard_name']
+node.override['mongodb']['instance_name'] = 'mongos'
 
-if ::File.executable?('/etc/init.d/mongodb') then
-   service "mongodb" do
-     supports :status => true, :restart => true
-     action [:disable, :stop]
-   end
+include_recipe 'mongodb::install'
+include_recipe 'mongodb::mongo_gem'
+
+service node[:mongodb][:default_init_name] do
+  action [:disable, :stop]
 end
 
-cluster_name = node[:mongodb][:cluster_name]
+configsrvs = search(
+  :node,
+  "mongodb_cluster_name:#{node['mongodb']['cluster_name']} AND \
+   mongodb_is_configserver:true AND \
+   chef_environment:#{node.chef_environment}"
+)
 
-if !node[:mongodb][cluster_name].nil? and
-   !node[:mongodb][cluster_name][:config_servers].nil?
-
-   configsvr = []
-   node[:mongodb][cluster_name][:config_servers].each do |ip|
-
-      cs = search(
-	:node,
-	"mongodb_cluster_name:#{cluster_name} AND \
-	 recipes:mongodb\\:\\:configserver AND \
-	 chef_environment:#{node.chef_environment} AND \
-	 ipaddress:#{ip}"
-      )
-
-      configsvr.push(cs[0])
-   end
-
-else
-
-   configsvr = search(
-     :node,
-     "mongodb_cluster_name:#{cluster_name} AND \
-      recipes:mongodb\\:\\:configserver AND \
-      chef_environment:#{node.chef_environment}"
-   )
-
+if configsrvs.length != 1 && configsrvs.length != 3
+  Chef::Log.error("Found #{configsrvs.length} configservers, need either one or three of them")
+  fail 'Wrong number of configserver nodes' unless Chef::Config[:solo]
 end
 
-Chef::Log.info( "Searching for Mongo Config Servers -- search result is: #{configsvr}" )
-
-if configsvr.length != 1 and configsvr.length != 3
-  Chef::Log.error("Found #{configsvr.length} configserver, need either one or three of them")
-  raise "Wrong number of configserver nodes"
-end
-
-mongodb_instance "mongos" do
-  mongodb_type "mongos"
-  port         node['mongodb']['port']
-  dbpath       node['mongodb']['dbpath']
-  configserver configsvr
-  enable_rest  node['mongodb']['enable_rest']
-end
-
-cron "chef-client" do
-  user "root"
-  action :delete
+mongodb_instance node['mongodb']['instance_name'] do
+  mongodb_type 'mongos'
+  port         node['mongodb']['config']['port']
+  logpath      node['mongodb']['config']['logpath']
+  dbpath       node['mongodb']['config']['dbpath']
+  configservers configsrvs
+  enable_rest  node['mongodb']['config']['rest']
+  smallfiles   node['mongodb']['config']['smallfiles']
 end
