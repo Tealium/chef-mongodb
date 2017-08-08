@@ -101,11 +101,7 @@ define :mongodb_instance, mongodb_type: 'mongod', action: %i[enable start], port
     end
   end
 
-  template_source = if type != 'mongos'
-                      'mongodb.config.erb'
-                    else
-                      'mongos.config.erb'
-                    end
+  template_source = type != 'mongos' ?  'mongodb.config.erb' : 'mongos.config.erb'
 
   # Setup DB Config File
   template configfile.to_s do
@@ -113,7 +109,7 @@ define :mongodb_instance, mongodb_type: 'mongod', action: %i[enable start], port
     source template_source
     group node['mongodb']['root_group']
     owner 'root'
-    mode 0o644
+    mode '0644'
     variables(
       'dbpath'		=> dbpath,
       'port'		=> port,
@@ -140,7 +136,7 @@ define :mongodb_instance, mongodb_type: 'mongod', action: %i[enable start], port
       source 'mongodb.upstart.erb'
       group node['mongodb']['root_group']
       owner 'root'
-      mode 0o644
+      mode '0644'
       variables(
         'daemon' => daemon,
         'configfile' => configfile,
@@ -157,7 +153,7 @@ define :mongodb_instance, mongodb_type: 'mongod', action: %i[enable start], port
       source 'mongos.upstart.erb'
       group node['mongodb']['root_group']
       owner 'root'
-      mode 0o644
+      mode '0644'
       variables(
         'daemon' => daemon,
         'configfile' => configfile,
